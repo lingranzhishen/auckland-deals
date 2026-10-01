@@ -77,13 +77,34 @@ export default function Home() {
 
     const handleSubmitDeal = async (e) => {
         e.preventDefault();
-        if (!title || !uploadedImgUrl) return alert('请拍照并填写标题！');
-        const { error } = await supabase.from('deals').insert([{
-            title, suburb: suburb || 'Auckland', source_type: '随手拍', deal_price: 0, original_price: 0, address: suburb, image_url: uploadedImgUrl
-        }]);
-        if (!error) {
-            alert('🎉 爆料成功！已同步全奥克兰！');
-            setTitle(''); setUploadedImgUrl(''); setSuburb(''); setShowForm(false); fetchDeals();
+        if (!title || !uploadedImgUrl) {
+            alert('请拍张照片并填写标题再上传哦！');
+            return;
+        }
+
+        try {
+            // 🚀 核心修改：前端不再直接对线 Supabase，而是把数据打包发给我们的后台 JS 路由
+            const res = await fetch('/api/create-deal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: title,
+                    suburb: suburb || 'Sunnynook',
+                    image_url: uploadedImgUrl
+                })
+            });
+
+            const json = await res.json();
+
+            if (json.success) {
+                alert('🎉 爆料成功！已通过后台安全同步全奥克兰！');
+                setTitle(''); setUploadedImgUrl(''); setSuburb(''); setShowForm(false);
+                fetchDeals(); // 刷新首页列表
+            } else {
+                alert('提交失败: ' + (json.error || '服务器开小差了'));
+            }
+        } catch (err) {
+            alert('网络连接失败，请稍后重试');
         }
     };
 
