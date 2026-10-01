@@ -1,109 +1,123 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// 初始化 Supabase 客户端（直接读取之前在 Vercel 绑定的环境变量）
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function Home() {
-    const [deals, setDeals] = useState([]); // 存放从数据库取出来的线报
-    const [activeRegion, setActiveRegion] = useState('全奥克兰'); // 当前选中的区域
+    const [deals, setDeals] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [title, setTitle] = useState('');
+    const [suburb, setSuburb] = useState('');
+    const [uploadingImg, setUploadingImg] = useState(false);
+    const [uploadedImgUrl, setUploadedImgUrl] = useState('');
+    const [showForm, setShowForm] = useState(false);
 
-    const regions = ['全奥克兰', 'Central', 'North Shore', 'East', 'West', 'South'];
-
-    // 联网获取数据的核心函数
     async function fetchDeals() {
         setLoading(true);
-        let query = supabase.from('deals').select('*').order('created_at', { ascending: false });
-
-        // 如果选了特定区域（比如北岸），就加一个筛选条件
-        if (activeRegion !== '全奥克兰') {
-            query = query.eq('region', activeRegion);
-        }
-
-        const { data, error } = await query;
-        if (error) {
-            console.error('读取数据库失败:', error);
-        } else {
-            setDeals(data || []);
-        }
+        const { data } = await supabase.from('deals').select('*').order('created_at', { ascending: false });
+        setDeals(data || []);
         setLoading(false);
     }
 
-    // 当用户打开网页，或者切换区域按钮时，自动触发联网抓取
     useEffect(() => {
-        if (supabaseUrl && supabaseAnonKey) {
-            fetchDeals();
+        if (supabaseUrl && supabaseAnonKey) fetchDeals();
+    }, []);
+
+    const handleGetLocation = () => {
+        if (!navigator.geolocation) return alert('浏览器不支持GPS');
+        setSuburb('正在精确定位街区...');
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            try {
+                const res = await fetch(`https://openstreetmap.org{pos.coords.latitude}&lon=${pos.coords.longitude}&zoom=18`);
+                const json = await res.json();
+                setSuburb(json.address.suburb || json.address.neighbourhood || json.address.city_district || 'Sunnynook');
+            } catch (e) {
+                setSuburb('Sunnynook');
+            }
+        }, () => alert('定位失败，请检查手机定位权限'));
+    };
+
+    const handleImageUpload = async (e) => {
+        if (!e.target.files[0]) return;
+        setUploadingImg(true);
+        const formData = new FormData();
+        formData.append('image', e.target.files[0]);
+        try {
+            const res = await fetch(`https://imgbb.com{process.env.NEXT_PUBLIC_IMGBB_API_KEY}`, { method: 'POST', body: formData });
+            const json = await res.json();
+            if (json.success) setUploadedImgUrl(json.data.url);
+        } catch (err) {
+            alert('图片上传失败');
+        } finally {
+            setUploadingImg(false);
         }
-    }, [activeRegion]);
+    };
+
+    const handleSubmitDeal = async (e) => {
+        e.preventDefault();
+        if (!title || !uploadedImgUrl) return alert('请拍照并填写标题！');
+        const { error } = await supabase.from('deals').insert([{
+            title, suburb: suburb || 'Auckland', source_type: '随手拍', deal_price: 0, original_price: 0, address: suburb, image_url: uploadedImgUrl
+        }]);
+        if (!error) {
+            alert('🎉 爆料成功！已同步全奥克兰！');
+            setTitle(''); setUploadedImgUrl(''); setSuburb(''); setShowForm(false); fetchDeals();
+        }
+    };
+
+    const filteredDeals = deals.filter(d => `${d.title} ${d.suburb}`.toLowerCase().includes(searchQuery.toLowerCase()));
 
     return (
-        <div style={{ fontFamily: 'Arial, sans-serif', padding: '20px', maxWidth: '600px', margin: '0 auto', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
-            <header style={{ textAlign: 'center', marginBottom: '30px' }}>
-                <h1 style={{ color: '#ff4d4f', fontSize: '28px', marginBottom: '5px' }}>🇳🇿 奥克兰捡漏网</h1>
-                <p style={{ color: '#666', margin: 0 }}>0成本·纯圈粉·奥克兰本地省钱情报站</p>
+        <div style={{ fontFamily: 'Arial,sans-serif', padding: '15px', maxWidth: '500px', margin: '0 auto', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <div>
+                    <h1 style={{ color: '#ff4d4f', fontSize: '24px', margin: 0 }}>🇳🇿 奥克兰捡漏网</h1>
+                    <p style={{ color: '#999', margin: 0, fontSize: '11px' }}>精准街区检索 · 随手拍清仓</p>
+                </div>
+                <button onClick={() => setShowForm(!showForm)} style={{ backgroundColor: '#ff4d4f', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer' }}>
+                    {showForm ? '关闭' : '📢 我要爆料'}
+                </button>
             </header>
 
-            {/* 奥克兰区域筛选按钮 */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '25px', justifyContent: 'center' }}>
-                {regions.map((region) => (
-                    <button
-                        key={region}
-                        onClick={() => setActiveRegion(region)}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '20px',
-                            border: activeRegion === region ? '1px solid #ff4d4f' : '1px solid #ddd',
-                            backgroundColor: activeRegion === region ? '#ff4d4f' : '#fff',
-                            color: activeRegion === region ? '#fff' : '#333',
-                            cursor: 'pointer',
-                            fontWeight: activeRegion === region ? 'bold' : 'normal',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        {region === '全奥克兰' ? '全奥克兰' : region}
-                    </button>
-                ))}
+            <div style={{ marginBottom: '20px' }}>
+                <input type="text" placeholder="🔍 输入奥克兰街区筛选 (例如: Sunnynook 或 Albany)" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ width: '100%', padding: '12px 15px', boxSizing: 'border-box', border: '2px solid #ff4d4f', borderRadius: '25px', fontSize: '14px', outline: 'none' }} />
             </div>
 
-            {/* 引导加入私域微信群的横幅 */}
-            <div style={{ backgroundColor: '#fffbe6', border: '1px solid #ffe58f', padding: '15px', borderRadius: '8px', textAlign: 'center', marginBottom: '20px' }}>
-                <p style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#d46b08' }}>
-                    🔥 手慢无！爆料延迟可能导致错失好机
-                </p>
-                <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#555' }}>
-                    长按加群主微信，拉你进【奥克兰实时捡漏群】
-                </p>
-            </div>
+            {showForm && (
+                <form onSubmit={handleSubmitDeal} style={{ backgroundColor: '#fff', padding: '15px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginBottom: '20px' }}>
+                    <h3 style={{ margin: '0 0 15px 0', fontSize: '16px' }}>📷 极速随手拍爆料</h3>
+                    <div style={{ marginBottom: '12px' }}>
+                        <button type="button" onClick={handleGetLocation} style={{ width: '100%', padding: '10px', backgroundColor: '#e6f7ff', border: '1px solid #91d5ff', color: '#1890ff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>📍 1. 点击自动GPS识别街区</button>
+                        {suburb && <input type="text" value={suburb} onChange={(e) => setSuburb(e.target.value)} style={{ width: '100%', padding: '8px', marginTop: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />}
+                    </div>
+                    <div style={{ marginBottom: '12px' }}>
+                        <label style={{ display: 'block', width: '100%', padding: '20px 0', backgroundColor: '#f5f5f5', border: '2px dashed #ccc', borderRadius: '6px', textAlign: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
+                            📸 {uploadingImg ? '正在极速上传图床...' : '2. 调起手机相机拍照'}
+                            <input type="file" accept="image/*" capture="camera" onChange={handleImageUpload} style={{ display: 'none' }} />
+                        </label>
+                        {uploadedImgUrl && <div style={{ marginTop: '10px', textAlign: 'center' }}><img src={uploadedImgUrl} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} /></div>}
+                    </div>
+                    <div style={{ marginBottom: '15px' }}>
+                        <input type="text" placeholder="3. 简单写个标题（如: Sunnynook华人超市零食清仓）" value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: '100%', padding: '10px', boxSizing: 'border-box', border: '1px solid #ddd', borderRadius: '6px' }} />
+                    </div>
+                    <button type="submit" style={{ width: '100%', padding: '12px', backgroundColor: '#52c41a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>🚀 发布线报，同步全城！</button>
+                </form>
+            )}
 
-            {/* 动态线报列表展示 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {loading ? (
-                    <p style={{ textAlign: 'center', color: '#999' }}>正在联网搬运奥克兰最新线报...</p>
-                ) : deals.length === 0 ? (
-                    <p style={{ textAlign: 'center', color: '#999', padding: '40px 0' }}>该区域暂无捡漏线报，快去群里呼唤小伙伴爆料吧！</p>
-                ) : (
-                    deals.map((deal) => (
-                        <div key={deal.id} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '15px', backgroundColor: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ backgroundColor: '#ff4d4f', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>
-                  {deal.source_type || '特价'}
-                </span>
-                                <span style={{ color: '#999', fontSize: '11px', marginLeft: 'auto' }}>
-                  {new Date(deal.created_at).toLocaleDateString('en-NZ')}
-                </span>
-                            </div>
-                            <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', color: '#333' }}>{deal.title}</h3>
-                            <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px', lineHeight: '1.4' }}>{deal.description}</p>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #eee', paddingTop: '10px' }}>
-                <span style={{ color: '#ff4d4f', fontSize: '16px', fontWeight: 'bold' }}>
-                  ${deal.deal_price} <span style={{ textDecoration: 'line-through', color: '#bbb', fontSize: '12px', fontWeight: 'normal' }}>${deal.original_price}</span>
-                </span>
-                                <span style={{ color: '#8c8c8c', fontSize: '11px' }}>
-                  📍 {deal.suburb} | {deal.address}
-                </span>
+                {loading ? ( <p style={{ textAlign: 'center', color: '#999' }}>加载奥克兰情报中...</p> ) : filteredDeals.length === 0 ? ( <p style={{ textAlign: 'center', color: '#999', padding: '30px 0' }}>没有找到该街区的捡漏信息！</p> ) : (
+                    filteredDeals.map((deal) => (
+                        <div key={deal.id} style={{ border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+                            {deal.image_url && <img src={deal.image_url} alt="deal" style={{ width: '100%', maxHeight: '250px', objectFit: 'cover' }} />}
+                            <div style={{ padding: '12px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                                    <span style={{ backgroundColor: '#ff4d4f', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>{deal.source_type}</span>
+                                    <span style={{ backgroundColor: '#1890ff', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>🏡 {deal.suburb}</span>
+                                </div>
+                                <h3 style={{ margin: '8px 0 4px 0', fontSize: '15px', color: '#333' }}>{deal.title}</h3>
                             </div>
                         </div>
                     ))
