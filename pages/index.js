@@ -41,16 +41,21 @@ export default function Home() {
     };
 
     const handleImageUpload = async (e) => {
-        if (!e.target.files[0]) return;
+        if (!e.target.files || !e.target.files[0]) return;
         setUploadingImg(true);
         const formData = new FormData();
-        formData.append('image', e.target.files[0]);
+        formData.append('image', e.target.files[0]); // ⚠️ 修复：明确指定 files[0] 传入单张照片
         try {
-            const res = await fetch(`https://imgbb.com{process.env.NEXT_PUBLIC_IMGBB_API_KEY}`, { method: 'POST', body: formData });
+            // 🚀 修改这里：不再直接连ImgBB，改为呼叫我们刚刚建好的 /api/upload 路由，彻底消灭跨域！
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
             const json = await res.json();
-            if (json.success) setUploadedImgUrl(json.data.url);
+            if (json.success) {
+                setUploadedImgUrl(json.data.url);
+            } else {
+                alert('图片转化失败，请重试');
+            }
         } catch (err) {
-            alert('图片上传失败');
+            alert('连接内部中转路由失败');
         } finally {
             setUploadingImg(false);
         }
